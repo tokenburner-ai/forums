@@ -32,9 +32,11 @@ class ForumsStack(cdk.Stack):
         cdk.Tags.of(self).add("tokenburner:feature", "forums")
 
         # ── S3 bucket (threads as JSON) ─────────────────────────────────────
+        # Include region in the name — S3 bucket names are globally unique, so
+        # a user deploying the stack in two regions would otherwise collide.
         bucket = s3.Bucket(
             self, "ForumsBucket",
-            bucket_name=f"tokenburner-forums-{self.account}",
+            bucket_name=f"tokenburner-forums-{self.account}-{self.region}",
             versioned=True,
             lifecycle_rules=[s3.LifecycleRule(noncurrent_version_expiration=cdk.Duration.days(90))],
             removal_policy=cdk.RemovalPolicy.RETAIN,
