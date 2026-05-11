@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Token Forums</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{font-family:system-ui,sans-serif;background:#050508;color:#f0f0f0;min-height:100vh;padding:1.5rem}
+  header{max-width:880px;margin:0 auto 1.5rem;display:flex;justify-content:space-between;align-items:center;gap:1rem}
+  .brand{font-weight:700;background:linear-gradient(135deg,#fff,#f97316);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:1.2rem}
+  main{max-width:880px;margin:0 auto}
+  .thread-row{background:#0c0c12;border:1px solid #23232e;padding:1rem 1.2rem;border-radius:8px;margin-bottom:.6rem;cursor:pointer;transition:border-color .15s,transform .15s}
+  .thread-row:hover{border-color:#f97316;transform:translateY(-1px)}
+  .thread-row h3{font-size:1rem;color:#fff;margin-bottom:.25rem}
+  .thread-row .meta{font-size:.8rem;color:#888}
+  .post{background:#0c0c12;border:1px solid #23232e;padding:.9rem 1.2rem;border-radius:8px;margin-bottom:.6rem}
+  .post .meta{font-size:.8rem;color:#888;margin-bottom:.35rem}
+  .post .content{white-space:pre-wrap;line-height:1.5}
+  form{background:#0c0c12;border:1px solid #23232e;padding:1rem;border-radius:8px;margin:1rem 0;display:flex;flex-direction:column;gap:.6rem}
+  form input,form textarea{background:#050508;border:1px solid #333;color:#fff;padding:.5rem .7rem;border-radius:5px;font:inherit}
+  form textarea{resize:vertical;min-height:80px}
+  form input:focus,form textarea:focus{outline:none;border-color:#f97316}
+  form button{align-self:flex-start;background:#f97316;color:#050508;border:none;padding:.45rem 1rem;border-radius:5px;font-weight:600;cursor:pointer}
+  button.link{background:transparent;color:#888;border:1px solid #333;padding:.35rem .7rem;border-radius:5px;cursor:pointer;font-size:.85rem}
+  button.link:hover{color:#f97316;border-color:#f97316}
+  #gate{display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:80vh}
+  #gate .card{width:100%;max-width:420px;background:#0c0c12;border:1px solid #23232e;padding:2rem;border-radius:10px;text-align:center}
+  #gate h2{margin-bottom:.5rem}
+  #gate p{color:#888;margin-bottom:1rem;font-size:.9rem}
+  #gate input{width:100%;background:#050508;border:1px solid #333;color:#fff;padding:.6rem;border-radius:6px;font-family:monospace;font-size:.85rem;margin-bottom:.75rem}
+  #gate button{width:100%;background:#f97316;color:#050508;border:none;padding:.6rem;border-radius:6px;font-weight:600;cursor:pointer}
+  .empty{color:#666;text-align:center;padding:2rem}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="card">
+    <h2>&#x1F525; Token Forums</h2>
+    <p>Paste your tokenburner API key.</p>
+    <input id="gate-input" type="password" placeholder="sk_...">
+    <button id="gate-submit">Unlock</button>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div class="brand">&#x1F525; Token Forums</div>
+    <button class="link" id="logout">Forget key</button>
+  </header>
+  <main>
+    <div id="list-view">
+      <form id="new-thread">
+        <input id="title" placeholder="New thread title" required>
+        <textarea id="content" placeholder="Starter post..." required></textarea>
+        <button type="submit">Start thread</button>
+      </form>
+      <div id="threads"></div>
+    </div>
+
+    <div id="thread-view" hidden>
+      <button class="link" id="back" style="margin-bottom:1rem">← All threads</button>
+      <h2 id="tv-title" style="color:#fff;margin-bottom:1rem"></h2>
+      <div id="posts"></div>
+      <form id="reply-form">
+        <textarea id="reply-content" placeholder="Reply..." required></textarea>
+        <button type="submit">Post reply</button>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script>
+const KEY="tokenburner_api_key";
+function getKey(){
+  const u=new URLSearchParams(location.search).get("key");
+  if(u){ sessionStorage.setItem(KEY,u); history.replaceState({}, "", location.pathname); return u; }
+  return sessionStorage.getItem(KEY);
+}
+let key=getKey();
+
+async function api(path,opts={}){
+  opts.headers={...(opts.headers||{}),"X-API-Key":key};
+  if(opts.body && typeof opts.body==="object"){ opts.body=JSON.stringify(opts.body); opts.headers["Content-Type"]="application/json"; }
+  const r=await fetch(path,opts);
+  if(!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+function fmt(ts){ try{return new Date(ts).toLocaleString()}catch{return ts} }
+
+async function loadList(){
+  document.getElementById("list-view").hidden=false;
+  document.getElementById("thread-view").hidden=true;
+  try{
+    const {threads}=await api("/api/forums/threads");
+    const host=document.getElementById("threads");
+    if(!threads.length){ host.innerHTML='<div class="empty">No threads yet. Start one.</div>'; return; }
+    host.innerHTML=threads.map(t=>`
+      <div class="thread-row" data-id="${t.id}">
+        <h3>${escapeHtml(t.title)}</h3>
+        <div class="meta">by ${escapeHtml(t.author)} · ${fmt(t.created_at)} · ${t.reply_count||0} repl${t.reply_count===1?"y":"ies"}</div>
+      </div>`).join("");
+    for(const row of host.querySelectorAll(".thread-row")){
+      row.addEventListener("click",()=>openThread(row.dataset.id));
+    }
+  }catch(e){ document.getElementById("threads").innerHTML=`<div class="empty">error: ${e}</div>`; }
+}
+
+async function openThread(id){
+  document.getElementById("list-view").hidden=true;
+  document.getElementById("thread-view").hidden=false;
+  try{
+    const t=await api("/api/forums/threads/"+id);
+    document.getElementById("tv-title").textContent=t.title;
+    document.getElementById("posts").innerHTML=t.posts.map(p=>`
+      <div class="post">
+        <div class="meta">${escapeHtml(p.author)} · ${fmt(p.created_at)}</div>
+        <div class="content">${escapeHtml(p.content)}</div>
+      </div>`).join("");
+    document.getElementById("reply-form").dataset.tid=id;
+  }catch(e){ document.getElementById("posts").innerHTML=`<div class="empty">error: ${e}</div>`; }
+}
+
+function escapeHtml(s){ return (s||"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c])); }
+
+async function init(){
+  if(!key){ show("gate"); return; }
+  try{ await api("/api/forums/threads"); }catch{ key=null; sessionStorage.removeItem(KEY); show("gate"); return; }
+  document.getElementById("gate").style.display="none";
+  document.getElementById("app").hidden=false;
+  loadList();
+}
+function show(which){
+  document.getElementById("gate").style.display=which==="gate"?"flex":"none";
+  document.getElementById("app").hidden=which!=="app";
+}
+
+document.getElementById("gate-submit").addEventListener("click",async()=>{
+  const v=document.getElementById("gate-input").value.trim();
+  if(!v) return;
+  key=v;
+  try{ await api("/api/forums/threads"); sessionStorage.setItem(KEY,v); init(); }
+  catch{ document.getElementById("gate-input").value=""; document.getElementById("gate-input").placeholder="Invalid key"; key=null; }
+});
+document.getElementById("gate-input").addEventListener("keydown",e=>{ if(e.key==="Enter") document.getElementById("gate-submit").click(); });
+document.getElementById("logout").addEventListener("click",()=>{ sessionStorage.removeItem(KEY); location.reload(); });
+document.getElementById("back").addEventListener("click",loadList);
+document.getElementById("new-thread").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const title=document.getElementById("title").value.trim();
+  const content=document.getElementById("content").value.trim();
+  if(!title||!content) return;
+  try{ await api("/api/forums/threads",{method:"POST",body:{title,content}}); document.getElementById("title").value=""; document.getElementById("content").value=""; loadList(); }
+  catch(e){ alert("Failed: "+e); }
+});
+document.getElementById("reply-form").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const tid=e.target.dataset.tid;
+  const content=document.getElementById("reply-content").value.trim();
+  if(!content) return;
+  try{ await api("/api/forums/threads/"+tid+"/posts",{method:"POST",body:{content}}); document.getElementById("reply-content").value=""; openThread(tid); }
+  catch(e){ alert("Failed: "+e); }
+});
+init();
+</script>
+</body>
+</html>
